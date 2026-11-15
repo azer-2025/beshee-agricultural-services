@@ -1,0 +1,1670 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.bishe.system.mapper.AgriMallMapper">
+
+    <select id="selectUserIdsByRoleKey" resultType="java.lang.Long">
+        select distinct ur.user_id
+        from sys_user_role ur
+        inner join sys_role r on r.role_id = ur.role_id
+        inner join sys_user u on u.user_id = ur.user_id
+        where r.role_key = #{roleKey}
+          and r.status = '0'
+          and r.del_flag = '0'
+          and u.status = '0'
+          and u.del_flag = '0'
+    </select>
+
+    <select id="selectCategoryList" resultType="java.util.Map">
+        select category_id as categoryId,
+               category_name as categoryName,
+               sort_num as sortNum,
+               status
+        from agri_category
+        where status = '0'
+        order by sort_num asc, category_id asc
+    </select>
+
+    <select id="selectProductList" parameterType="java.util.Map" resultType="java.util.Map">
+        select p.product_id as productId,
+               p.category_id as categoryId,
+               c.category_name as categoryName,
+               p.farmer_id as farmerId,
+               u.nick_name as farmerName,
+               fa.farm_name as farmName,
+               fa.farm_address as farmAddress,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               p.price,
+               p.stock,
+               p.sales_count as salesCount,
+               p.status,
+               ifnull((select round(avg((r.quality_star + r.package_star + r.service_star) / 3), 1)
+                       from agri_review r
+                       where r.product_id = p.product_id), 0) as avgScore,
+               p.create_time as createTime
+        from agri_product p
+        left join agri_category c on c.category_id = p.category_id
+        left join sys_user u on u.user_id = p.farmer_id
+        left join (
+            select a.user_id, a.farm_name, a.farm_address
+            from agri_farmer_apply a
+            inner join (
+                select user_id, max(apply_id) as max_apply_id
+                from agri_farmer_apply
+                where status = '1'
+                group by user_id
+            ) latest on latest.max_apply_id = a.apply_id
+        ) fa on fa.user_id = p.farmer_id
+        where p.status = '1'
+        <if test="categoryId != null and categoryId != ''">
+            and p.category_id = #{categoryId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (
+                p.product_name like concat('%', #{keyword}, '%')
+                or u.nick_name like concat('%', #{keyword}, '%')
+                or fa.farm_name like concat('%', #{keyword}, '%')
+            )
+        </if>
+        order by p.create_time desc, p.product_id desc
+    </select>
+
+    <select id="selectProductDetail" resultType="java.util.Map">
+        select p.product_id as productId,
+               p.category_id as categoryId,
+               c.category_name as categoryName,
+               p.farmer_id as farmerId,
+               u.nick_name as farmerName,
+               u.phonenumber as farmerPhone,
+               fa.farm_name as farmName,
+               fa.farm_address as farmAddress,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               p.product_images as productImages,
+               p.product_desc as productDesc,
+               p.price,
+               p.stock,
+               p.sales_count as salesCount,
+               p.status,
+               ifnull((select round(avg((r.quality_star + r.package_star + r.service_star) / 3), 1)
+                       from agri_review r
+                       where r.product_id = p.product_id), 0) as avgScore,
+               p.create_time as createTime
+        from agri_product p
+        left join agri_category c on c.category_id = p.category_id
+        left join sys_user u on u.user_id = p.farmer_id
+        left join (
+            select a.user_id, a.farm_name, a.farm_address
+            from agri_farmer_apply a
+            inner join (
+                select user_id, max(apply_id) as max_apply_id
+                from agri_farmer_apply
+                where status = '1'
+                group by user_id
+            ) latest on latest.max_apply_id = a.apply_id
+        ) fa on fa.user_id = p.farmer_id
+        where p.product_id = #{productId}
+    </select>
+
+    <select id="selectCartItem" resultType="java.util.Map">
+        select cart_id as cartId,
+               buyer_id as buyerId,
+               product_id as productId,
+               quantity,
+               checked,
+               status
+        from agri_cart
+        where buyer_id = #{buyerId}
+          and product_id = #{productId}
+        limit 1
+    </select>
+
+    <insert id="insertCartItem" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="cartId">
+        insert into agri_cart (buyer_id, product_id, quantity, checked, status, create_time, update_time)
+        values (#{buyerId}, #{productId}, #{quantity}, #{checked}, '0', #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="updateCartItemQuantity">
+        update agri_cart
+        set quantity = #{quantity},
+            update_time = #{updateTime}
+        where cart_id = #{cartId}
+    </update>
+
+    <update id="updateCartItemChecked">
+        update agri_cart
+        set checked = #{checked},
+            update_time = #{updateTime}
+        where buyer_id = #{buyerId}
+          and cart_id = #{cartId}
+    </update>
+
+    <update id="updateCartCheckedAll">
+        update agri_cart
+        set checked = #{checked},
+            update_time = #{updateTime}
+        where buyer_id = #{buyerId}
+    </update>
+
+    <delete id="deleteCartByIds">
+        delete from agri_cart
+        where buyer_id = #{buyerId}
+          and cart_id in
+        <foreach collection="cartIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <delete id="clearInvalidCart">
+        delete c
+        from agri_cart c
+        left join agri_product p on p.product_id = c.product_id
+        where c.buyer_id = #{buyerId}
+          and (p.product_id is null or p.status &lt;&gt; '1' or p.stock &lt;= 0)
+    </delete>
+
+    <delete id="clearCheckedCart">
+        delete from agri_cart
+        where buyer_id = #{buyerId}
+          and checked = '1'
+    </delete>
+
+    <select id="selectCartList" resultType="java.util.Map">
+        select c.cart_id as cartId,
+               c.buyer_id as buyerId,
+               c.product_id as productId,
+               c.quantity,
+               c.checked,
+               c.status as cartStatus,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               p.price,
+               p.stock,
+               p.status as productStatus,
+               p.farmer_id as farmerId,
+               if(p.product_id is null or p.status &lt;&gt; '1' or p.stock &lt;= 0, 1, 0) as invalidFlag
+        from agri_cart c
+        left join agri_product p on p.product_id = c.product_id
+        where c.buyer_id = #{buyerId}
+        order by c.update_time desc, c.cart_id desc
+    </select>
+
+    <select id="selectCheckedCart" resultType="java.util.Map">
+        select c.cart_id as cartId,
+               c.buyer_id as buyerId,
+               c.product_id as productId,
+               c.quantity,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               p.price,
+               p.stock,
+               p.farmer_id as farmerId
+        from agri_cart c
+        inner join agri_product p on p.product_id = c.product_id
+        where c.buyer_id = #{buyerId}
+          and c.checked = '1'
+          and c.status = '0'
+          and p.status = '1'
+          and p.stock &gt;= c.quantity
+        order by p.farmer_id asc, c.cart_id asc
+    </select>
+
+    <update id="decreaseProductStock">
+        update agri_product
+        set stock = stock - #{quantity}
+        where product_id = #{productId}
+          and stock &gt;= #{quantity}
+    </update>
+
+    <update id="increaseProductStock">
+        update agri_product
+        set stock = stock + #{quantity}
+        where product_id = #{productId}
+    </update>
+
+    <update id="increaseProductSales">
+        update agri_product
+        set sales_count = sales_count + #{quantity}
+        where product_id = #{productId}
+    </update>
+
+    <insert id="insertOrder" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="orderId">
+        insert into agri_order (
+            order_no, buyer_id, farmer_id, total_amount, freight_amount, pay_amount,
+            pay_status, order_status, payment_channel, pay_voucher_no,
+            receiver_name, receiver_phone, receiver_address,
+            buyer_remark, farmer_remark, create_time, update_time
+        ) values (
+            #{orderNo}, #{buyerId}, #{farmerId}, #{totalAmount}, #{freightAmount}, #{payAmount},
+            #{payStatus}, #{orderStatus}, #{paymentChannel}, #{payVoucherNo},
+            #{receiverName}, #{receiverPhone}, #{receiverAddress},
+            #{buyerRemark}, #{farmerRemark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <insert id="insertOrderItem" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="itemId">
+        insert into agri_order_item (
+            order_id, product_id, product_name, product_cover, price, quantity, amount, review_status
+        ) values (
+            #{orderId}, #{productId}, #{productName}, #{productCover}, #{price}, #{quantity}, #{amount}, #{reviewStatus}
+        )
+    </insert>
+
+    <select id="selectBuyerOrderList" parameterType="java.util.Map" resultType="java.util.Map">
+        select o.order_id as orderId,
+               o.order_no as orderNo,
+               o.buyer_id as buyerId,
+               o.farmer_id as farmerId,
+               u.nick_name as farmerName,
+               o.total_amount as totalAmount,
+               o.freight_amount as freightAmount,
+               o.pay_amount as payAmount,
+               o.pay_status as payStatus,
+               o.order_status as orderStatus,
+               o.payment_channel as paymentChannel,
+               o.pay_voucher_no as payVoucherNo,
+               o.receiver_name as receiverName,
+               o.receiver_phone as receiverPhone,
+               o.receiver_address as receiverAddress,
+               o.buyer_remark as buyerRemark,
+               o.farmer_remark as farmerRemark,
+               o.pay_time as payTime,
+               o.ship_time as shipTime,
+               o.finish_time as finishTime,
+               o.create_time as createTime,
+               count(i.item_id) as itemCount
+        from agri_order o
+        left join sys_user u on u.user_id = o.farmer_id
+        left join agri_order_item i on i.order_id = o.order_id
+        where o.buyer_id = #{buyerId}
+        <if test="orderStatus != null and orderStatus != ''">
+            and o.order_status = #{orderStatus}
+        </if>
+        <if test="payStatus != null and payStatus != ''">
+            and o.pay_status = #{payStatus}
+        </if>
+        group by o.order_id
+        order by o.create_time desc, o.order_id desc
+    </select>
+
+    <select id="selectFarmerOrderList" parameterType="java.util.Map" resultType="java.util.Map">
+        select o.order_id as orderId,
+               o.order_no as orderNo,
+               o.buyer_id as buyerId,
+               b.nick_name as buyerName,
+               o.farmer_id as farmerId,
+               o.total_amount as totalAmount,
+               o.freight_amount as freightAmount,
+               o.pay_amount as payAmount,
+               o.pay_status as payStatus,
+               o.order_status as orderStatus,
+               o.payment_channel as paymentChannel,
+               o.pay_voucher_no as payVoucherNo,
+               o.receiver_name as receiverName,
+               o.receiver_phone as receiverPhone,
+               o.receiver_address as receiverAddress,
+               o.buyer_remark as buyerRemark,
+               o.farmer_remark as farmerRemark,
+               o.pay_time as payTime,
+               o.ship_time as shipTime,
+               o.finish_time as finishTime,
+               o.create_time as createTime,
+               count(i.item_id) as itemCount
+        from agri_order o
+        left join sys_user b on b.user_id = o.buyer_id
+        left join agri_order_item i on i.order_id = o.order_id
+        where 1 = 1
+        <if test="isAdmin == null or isAdmin != '1'">
+            and o.farmer_id = #{farmerId}
+        </if>
+        <if test="orderStatus != null and orderStatus != ''">
+            and o.order_status = #{orderStatus}
+        </if>
+        <if test="payStatus != null and payStatus != ''">
+            and o.pay_status = #{payStatus}
+        </if>
+        group by o.order_id
+        order by o.create_time desc, o.order_id desc
+    </select>
+
+    <select id="selectAdminOrderList" parameterType="java.util.Map" resultType="java.util.Map">
+        select o.order_id as orderId,
+               o.order_no as orderNo,
+               o.buyer_id as buyerId,
+               bu.nick_name as buyerName,
+               o.farmer_id as farmerId,
+               fu.nick_name as farmerName,
+               o.total_amount as totalAmount,
+               o.freight_amount as freightAmount,
+               o.pay_amount as payAmount,
+               o.pay_status as payStatus,
+               o.order_status as orderStatus,
+               o.payment_channel as paymentChannel,
+               o.pay_voucher_no as payVoucherNo,
+               o.receiver_name as receiverName,
+               o.receiver_phone as receiverPhone,
+               o.receiver_address as receiverAddress,
+               o.buyer_remark as buyerRemark,
+               o.farmer_remark as farmerRemark,
+               o.pay_time as payTime,
+               o.ship_time as shipTime,
+               o.finish_time as finishTime,
+               o.create_time as createTime,
+               count(i.item_id) as itemCount
+        from agri_order o
+        left join sys_user bu on bu.user_id = o.buyer_id
+        left join sys_user fu on fu.user_id = o.farmer_id
+        left join agri_order_item i on i.order_id = o.order_id
+        where 1 = 1
+        <if test="orderStatus != null and orderStatus != ''">
+            and o.order_status = #{orderStatus}
+        </if>
+        <if test="payStatus != null and payStatus != ''">
+            and o.pay_status = #{payStatus}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (
+                o.order_no like concat('%', #{keyword}, '%')
+                or bu.nick_name like concat('%', #{keyword}, '%')
+                or fu.nick_name like concat('%', #{keyword}, '%')
+            )
+        </if>
+        group by o.order_id
+        order by o.create_time desc, o.order_id desc
+    </select>
+
+    <select id="selectOrderByBuyer" resultType="java.util.Map">
+        select *
+        from agri_order
+        where order_id = #{orderId}
+          and buyer_id = #{buyerId}
+        limit 1
+    </select>
+
+    <select id="selectOrderById" resultType="java.util.Map">
+        select *
+        from agri_order
+        where order_id = #{orderId}
+        limit 1
+    </select>
+
+    <select id="selectOrderByNo" resultType="java.util.Map">
+        select *
+        from agri_order
+        where order_no = #{orderNo}
+        limit 1
+    </select>
+
+    <select id="selectOrderByFarmer" resultType="java.util.Map">
+        select *
+        from agri_order
+        where order_id = #{orderId}
+          and farmer_id = #{farmerId}
+        limit 1
+    </select>
+
+    <select id="selectOrderItemsByOrder" resultType="java.util.Map">
+        select item_id as itemId,
+               order_id as orderId,
+               product_id as productId,
+               product_name as productName,
+               product_cover as productCover,
+               price,
+               quantity,
+               amount,
+               review_status as reviewStatus
+        from agri_order_item
+        where order_id = #{orderId}
+        order by item_id asc
+    </select>
+
+    <update id="updateOrderPay">
+        update agri_order
+        set pay_status = #{payStatus},
+            order_status = #{orderStatus},
+            payment_channel = #{paymentChannel},
+            pay_voucher_no = #{payVoucherNo},
+            pay_time = #{payTime},
+            update_time = #{updateTime}
+        where order_id = #{orderId}
+          and buyer_id = #{buyerId}
+    </update>
+
+    <update id="updateOrderPayByOrderNo">
+        update agri_order
+        set pay_status = #{payStatus},
+            order_status = #{orderStatus},
+            payment_channel = #{paymentChannel},
+            pay_voucher_no = #{payVoucherNo},
+            pay_time = #{payTime},
+            update_time = #{updateTime}
+        where order_no = #{orderNo}
+          and pay_status = '0'
+          and order_status not in ('5', '7')
+    </update>
+
+    <update id="updateOrderStatusByBuyer">
+        update agri_order
+        set order_status = #{orderStatus},
+            finish_time = #{finishTime},
+            update_time = #{updateTime}
+        where order_id = #{orderId}
+          and buyer_id = #{buyerId}
+    </update>
+
+    <update id="updateOrderStatusByFarmer">
+        update agri_order
+        set order_status = #{orderStatus},
+            farmer_remark = #{farmerRemark},
+            update_time = #{updateTime}
+        where order_id = #{orderId}
+          and farmer_id = #{farmerId}
+    </update>
+
+    <update id="updateOrderShip">
+        update agri_order
+        set order_status = #{orderStatus},
+            ship_time = #{shipTime},
+            farmer_remark = #{farmerRemark},
+            update_time = #{updateTime}
+        where order_id = #{orderId}
+          and farmer_id = #{farmerId}
+    </update>
+
+    <update id="updateOrderByAdmin">
+        update agri_order
+        <set>
+            <if test="payStatus != null and payStatus != ''">
+                pay_status = #{payStatus},
+            </if>
+            <if test="orderStatus != null and orderStatus != ''">
+                order_status = #{orderStatus},
+            </if>
+            <if test="paymentChannel != null and paymentChannel != ''">
+                payment_channel = #{paymentChannel},
+            </if>
+            <if test="farmerRemark != null">
+                farmer_remark = #{farmerRemark},
+            </if>
+            <if test="shipTime != null">
+                ship_time = #{shipTime},
+            </if>
+            <if test="finishTime != null">
+                finish_time = #{finishTime},
+            </if>
+            update_time = #{updateTime}
+        </set>
+        where order_id = #{orderId}
+    </update>
+
+    <update id="updateOrderToRefunding">
+        update agri_order
+        set order_status = '6',
+            update_time = #{updateTime}
+        where order_id = #{orderId}
+    </update>
+
+    <update id="updateOrderToRefunded">
+        update agri_order
+        set order_status = '7',
+            pay_status = '2',
+            update_time = #{updateTime}
+        where order_id = #{orderId}
+    </update>
+
+    <insert id="insertPaymentVoucher" parameterType="java.util.Map">
+        insert into agri_payment_voucher (
+            order_id, pay_no, channel, voucher_img, pay_amount, pay_time, status
+        ) values (
+            #{orderId}, #{payNo}, #{channel}, #{voucherImg}, #{payAmount}, #{payTime}, #{status}
+        )
+    </insert>
+
+    <select id="selectPaymentVoucherByOrder" resultType="java.util.Map">
+        select voucher_id as voucherId,
+               order_id as orderId,
+               pay_no as payNo,
+               channel,
+               voucher_img as voucherImg,
+               pay_amount as payAmount,
+               pay_time as payTime,
+               status
+        from agri_payment_voucher
+        where order_id = #{orderId}
+        order by voucher_id desc
+        limit 1
+    </select>
+
+    <insert id="insertLogisticsTrace" parameterType="java.util.Map">
+        insert into agri_logistics_trace (
+            order_id, status_node, status_desc, trace_time
+        ) values (
+            #{orderId}, #{statusNode}, #{statusDesc}, #{traceTime}
+        )
+    </insert>
+
+    <select id="selectLogisticsByOrder" resultType="java.util.Map">
+        select trace_id as traceId,
+               order_id as orderId,
+               status_node as statusNode,
+               status_desc as statusDesc,
+               trace_time as traceTime
+        from agri_logistics_trace
+        where order_id = #{orderId}
+        order by trace_time desc, trace_id desc
+    </select>
+
+    <select id="selectRefundByOrderAndBuyer" resultType="java.util.Map">
+        select *
+        from agri_refund
+        where order_id = #{orderId}
+          and buyer_id = #{buyerId}
+        limit 1
+    </select>
+
+    <insert id="insertRefund" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="refundId">
+        insert into agri_refund (
+            order_id, buyer_id, farmer_id, amount, reason, status,
+            farmer_remark, admin_remark, create_time, audit_time, update_time
+        ) values (
+            #{orderId}, #{buyerId}, #{farmerId}, #{amount}, #{reason}, #{status},
+            #{farmerRemark}, #{adminRemark}, #{createTime}, #{auditTime}, #{updateTime}
+        )
+    </insert>
+
+    <select id="selectFarmerRefundList" parameterType="java.util.Map" resultType="java.util.Map">
+        select r.refund_id as refundId,
+               r.order_id as orderId,
+               r.buyer_id as buyerId,
+               u.nick_name as buyerName,
+               r.farmer_id as farmerId,
+               r.amount,
+               r.reason,
+               r.status,
+               r.farmer_remark as farmerRemark,
+               r.admin_remark as adminRemark,
+               r.create_time as createTime,
+               r.audit_time as auditTime,
+               r.update_time as updateTime
+        from agri_refund r
+        left join sys_user u on u.user_id = r.buyer_id
+        where 1 = 1
+        <if test="isAdmin == null or isAdmin != '1'">
+            and r.farmer_id = #{farmerId}
+        </if>
+        order by r.create_time desc, r.refund_id desc
+    </select>
+
+    <update id="updateRefundHandle">
+        update agri_refund
+        set status = #{status},
+            farmer_remark = #{farmerRemark},
+            audit_time = #{auditTime},
+            update_time = #{updateTime}
+        where refund_id = #{refundId}
+          and farmer_id = #{farmerId}
+    </update>
+
+    <insert id="insertFarmerNotice" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="noticeId">
+        insert into agri_farmer_notice (
+            farmer_id, notice_type, biz_id, title, content, read_flag, create_time, read_time
+        ) values (
+            #{farmerId}, #{noticeType}, #{bizId}, #{title}, #{content}, #{readFlag}, #{createTime}, #{readTime}
+        )
+    </insert>
+
+    <select id="selectFarmerNoticeList" parameterType="java.util.Map" resultType="java.util.Map">
+        select notice_id as noticeId,
+               farmer_id as farmerId,
+               notice_type as noticeType,
+               biz_id as bizId,
+               title,
+               content,
+               read_flag as readFlag,
+               create_time as createTime,
+               read_time as readTime
+        from agri_farmer_notice
+        where farmer_id = #{farmerId}
+        <if test="readFlag != null and readFlag != ''">
+            and read_flag = #{readFlag}
+        </if>
+        <if test="noticeType != null and noticeType != ''">
+            and notice_type = #{noticeType}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (title like concat('%', #{keyword}, '%')
+              or content like concat('%', #{keyword}, '%'))
+        </if>
+        order by notice_id desc
+        <if test="limit != null and limit != ''">
+            limit #{limit}
+        </if>
+    </select>
+
+    <update id="updateFarmerNoticeRead">
+        update agri_farmer_notice
+        set read_flag = '1',
+            read_time = #{readTime}
+        where notice_id = #{noticeId}
+          and farmer_id = #{farmerId}
+          and read_flag = '0'
+    </update>
+
+    <update id="updateFarmerNoticeReadAll">
+        update agri_farmer_notice
+        set read_flag = '1',
+            read_time = #{readTime}
+        where farmer_id = #{farmerId}
+          and read_flag = '0'
+    </update>
+
+    <select id="countFarmerUnreadNotice" resultType="java.lang.Integer">
+        select count(1)
+        from agri_farmer_notice
+        where farmer_id = #{farmerId}
+          and read_flag = '0'
+    </select>
+
+    <insert id="insertAdminNotice" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="noticeId">
+        insert into agri_admin_notice (
+            admin_id, notice_type, biz_id, title, content, read_flag, create_time, read_time
+        ) values (
+            #{adminId}, #{noticeType}, #{bizId}, #{title}, #{content}, #{readFlag}, #{createTime}, #{readTime}
+        )
+    </insert>
+
+    <select id="selectAdminNoticeList" parameterType="java.util.Map" resultType="java.util.Map">
+        select notice_id as noticeId,
+               admin_id as adminId,
+               notice_type as noticeType,
+               biz_id as bizId,
+               title,
+               content,
+               read_flag as readFlag,
+               create_time as createTime,
+               read_time as readTime
+        from agri_admin_notice
+        where admin_id = #{adminId}
+        <if test="readFlag != null and readFlag != ''">
+            and read_flag = #{readFlag}
+        </if>
+        <if test="noticeType != null and noticeType != ''">
+            and notice_type = #{noticeType}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (title like concat('%', #{keyword}, '%')
+              or content like concat('%', #{keyword}, '%'))
+        </if>
+        order by notice_id desc
+    </select>
+
+    <update id="updateAdminNoticeRead">
+        update agri_admin_notice
+        set read_flag = '1',
+            read_time = #{readTime}
+        where notice_id = #{noticeId}
+          and admin_id = #{adminId}
+          and read_flag = '0'
+    </update>
+
+    <update id="updateAdminNoticeReadAll">
+        update agri_admin_notice
+        set read_flag = '1',
+            read_time = #{readTime}
+        where admin_id = #{adminId}
+          and read_flag = '0'
+    </update>
+
+    <select id="countAdminUnreadNotice" resultType="java.lang.Integer">
+        select count(1)
+        from agri_admin_notice
+        where admin_id = #{adminId}
+          and read_flag = '0'
+    </select>
+
+    <select id="selectReviewableItems" resultType="java.util.Map">
+        select oi.item_id as itemId,
+               oi.order_id as orderId,
+               oi.product_id as productId,
+               oi.product_name as productName,
+               oi.product_cover as productCover,
+               oi.price,
+               oi.quantity,
+               oi.amount,
+               oi.review_status as reviewStatus,
+               o.farmer_id as farmerId,
+               o.order_no as orderNo,
+               o.finish_time as finishTime
+        from agri_order_item oi
+        inner join agri_order o on o.order_id = oi.order_id
+        where o.buyer_id = #{buyerId}
+          and o.order_status = '4'
+          and oi.review_status = '0'
+        order by o.finish_time desc, oi.item_id desc
+    </select>
+
+    <select id="selectOrderItemById" resultType="java.util.Map">
+        select item_id as itemId,
+               order_id as orderId,
+               product_id as productId,
+               product_name as productName,
+               product_cover as productCover,
+               price,
+               quantity,
+               amount,
+               review_status as reviewStatus
+        from agri_order_item
+        where item_id = #{itemId}
+        limit 1
+    </select>
+
+    <insert id="insertReview" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="reviewId">
+        insert into agri_review (
+            order_id, order_item_id, product_id, buyer_id, farmer_id,
+            quality_star, package_star, service_star, content, create_time
+        ) values (
+            #{orderId}, #{orderItemId}, #{productId}, #{buyerId}, #{farmerId},
+            #{qualityStar}, #{packageStar}, #{serviceStar}, #{content}, #{createTime}
+        )
+    </insert>
+
+    <update id="updateOrderItemReviewStatus">
+        update agri_order_item
+        set review_status = '1'
+        where item_id = #{itemId}
+    </update>
+
+    <update id="updateOrderItemReviewStatusValue">
+        update agri_order_item
+        set review_status = #{reviewStatus}
+        where item_id = #{itemId}
+    </update>
+
+    <select id="selectBuyerReviewList" resultType="java.util.Map">
+        select r.review_id as reviewId,
+               r.order_id as orderId,
+               r.order_item_id as orderItemId,
+               r.product_id as productId,
+               r.buyer_id as buyerId,
+               r.farmer_id as farmerId,
+               u.nick_name as farmerName,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               r.quality_star as qualityStar,
+               r.package_star as packageStar,
+               r.service_star as serviceStar,
+               r.content,
+               r.create_time as createTime
+        from agri_review r
+        left join agri_product p on p.product_id = r.product_id
+        left join sys_user u on u.user_id = r.farmer_id
+        where r.buyer_id = #{buyerId}
+        order by r.create_time desc, r.review_id desc
+    </select>
+
+    <select id="selectAdminPendingReviewList" parameterType="java.util.Map" resultType="java.util.Map">
+        select oi.item_id as itemId,
+               oi.order_id as orderId,
+               o.order_no as orderNo,
+               oi.product_id as productId,
+               oi.product_name as productName,
+               oi.product_cover as productCover,
+               oi.price,
+               oi.quantity,
+               oi.amount,
+               oi.review_status as reviewStatus,
+               o.buyer_id as buyerId,
+               bu.nick_name as buyerName,
+               o.farmer_id as farmerId,
+               fu.nick_name as farmerName,
+               o.finish_time as finishTime
+        from agri_order_item oi
+        inner join agri_order o on o.order_id = oi.order_id
+        left join sys_user bu on bu.user_id = o.buyer_id
+        left join sys_user fu on fu.user_id = o.farmer_id
+        where o.order_status = '4'
+          and oi.review_status = '0'
+        <if test="keyword != null and keyword != ''">
+            and (o.order_no like concat('%', #{keyword}, '%')
+              or oi.product_name like concat('%', #{keyword}, '%')
+              or bu.nick_name like concat('%', #{keyword}, '%')
+              or fu.nick_name like concat('%', #{keyword}, '%'))
+        </if>
+        order by o.finish_time desc, o.order_id desc, oi.item_id desc
+    </select>
+
+    <select id="selectAdminReviewList" parameterType="java.util.Map" resultType="java.util.Map">
+        select r.review_id as reviewId,
+               r.order_id as orderId,
+               o.order_no as orderNo,
+               r.order_item_id as orderItemId,
+               r.product_id as productId,
+               ifnull(oi.product_name, p.product_name) as productName,
+               ifnull(oi.product_cover, p.product_cover) as productCover,
+               r.buyer_id as buyerId,
+               bu.nick_name as buyerName,
+               r.farmer_id as farmerId,
+               fu.nick_name as farmerName,
+               r.quality_star as qualityStar,
+               r.package_star as packageStar,
+               r.service_star as serviceStar,
+               r.content,
+               r.create_time as createTime
+        from agri_review r
+        left join agri_order o on o.order_id = r.order_id
+        left join agri_order_item oi on oi.item_id = r.order_item_id
+        left join agri_product p on p.product_id = r.product_id
+        left join sys_user bu on bu.user_id = r.buyer_id
+        left join sys_user fu on fu.user_id = r.farmer_id
+        where 1 = 1
+        <if test="keyword != null and keyword != ''">
+            and (o.order_no like concat('%', #{keyword}, '%')
+              or ifnull(oi.product_name, p.product_name) like concat('%', #{keyword}, '%')
+              or bu.nick_name like concat('%', #{keyword}, '%')
+              or fu.nick_name like concat('%', #{keyword}, '%')
+              or r.content like concat('%', #{keyword}, '%'))
+        </if>
+        order by r.create_time desc, r.review_id desc
+    </select>
+
+    <select id="selectReviewById" resultType="java.util.Map">
+        select review_id as reviewId,
+               order_id as orderId,
+               order_item_id as orderItemId,
+               product_id as productId,
+               buyer_id as buyerId,
+               farmer_id as farmerId,
+               quality_star as qualityStar,
+               package_star as packageStar,
+               service_star as serviceStar,
+               content,
+               create_time as createTime
+        from agri_review
+        where review_id = #{reviewId}
+        limit 1
+    </select>
+
+    <update id="updateReviewByAdmin" parameterType="java.util.Map">
+        update agri_review
+        set quality_star = #{qualityStar},
+            package_star = #{packageStar},
+            service_star = #{serviceStar},
+            content = #{content}
+        where review_id = #{reviewId}
+    </update>
+
+    <delete id="deleteReviewById">
+        delete from agri_review
+        where review_id = #{reviewId}
+    </delete>
+
+    <select id="countReviewByOrderItem" resultType="java.lang.Integer">
+        select count(1)
+        from agri_review
+        where order_item_id = #{itemId}
+    </select>
+
+    <select id="selectFarmerApplyByUserId" resultType="java.util.Map">
+        select apply_id as applyId,
+               user_id as userId,
+               real_name as realName,
+               id_card as idCard,
+               phone,
+               farm_name as farmName,
+               farm_address as farmAddress,
+               qualification_img as qualificationImg,
+               status,
+               audit_by as auditBy,
+               audit_time as auditTime,
+               audit_remark as auditRemark,
+               create_time as createTime,
+               update_time as updateTime
+        from agri_farmer_apply
+        where user_id = #{userId}
+        limit 1
+    </select>
+
+    <insert id="insertFarmerApply" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="applyId">
+        insert into agri_farmer_apply (
+            user_id, real_name, id_card, phone, farm_name, farm_address,
+            qualification_img, status, audit_by, audit_time, audit_remark, create_time, update_time
+        ) values (
+            #{userId}, #{realName}, #{idCard}, #{phone}, #{farmName}, #{farmAddress},
+            #{qualificationImg}, #{status}, #{auditBy}, #{auditTime}, #{auditRemark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <update id="updateFarmerApply" parameterType="java.util.Map">
+        update agri_farmer_apply
+        set real_name = #{realName},
+            id_card = #{idCard},
+            phone = #{phone},
+            farm_name = #{farmName},
+            farm_address = #{farmAddress},
+            qualification_img = #{qualificationImg},
+            status = #{status},
+            audit_by = #{auditBy},
+            audit_time = #{auditTime},
+            audit_remark = #{auditRemark},
+            update_time = #{updateTime}
+        where apply_id = #{applyId}
+    </update>
+
+    <select id="selectFarmerApplyList" parameterType="java.util.Map" resultType="java.util.Map">
+        select a.apply_id as applyId,
+               a.user_id as userId,
+               u.user_name as userName,
+               u.nick_name as nickName,
+               a.real_name as realName,
+               a.id_card as idCard,
+               a.phone,
+               a.farm_name as farmName,
+               a.farm_address as farmAddress,
+               a.qualification_img as qualificationImg,
+               a.status,
+               a.audit_by as auditBy,
+               a.audit_time as auditTime,
+               a.audit_remark as auditRemark,
+               a.create_time as createTime,
+               a.update_time as updateTime
+        from agri_farmer_apply a
+        left join sys_user u on u.user_id = a.user_id
+        where 1 = 1
+        <if test="status != null and status != ''">
+            and a.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (a.farm_name like concat('%', #{keyword}, '%')
+              or u.user_name like concat('%', #{keyword}, '%')
+              or u.nick_name like concat('%', #{keyword}, '%'))
+        </if>
+        order by a.create_time desc, a.apply_id desc
+    </select>
+
+    <update id="updateFarmerApplyAudit" parameterType="java.util.Map">
+        update agri_farmer_apply
+        set status = #{status},
+            audit_by = #{auditBy},
+            audit_time = #{auditTime},
+            audit_remark = #{auditRemark},
+            update_time = #{updateTime}
+        where apply_id = #{applyId}
+    </update>
+
+    <select id="selectFarmerProductList" parameterType="java.util.Map" resultType="java.util.Map">
+        select p.product_id as productId,
+               p.category_id as categoryId,
+               c.category_name as categoryName,
+               p.farmer_id as farmerId,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               p.product_images as productImages,
+               p.product_desc as productDesc,
+               p.price,
+               p.stock,
+               p.sales_count as salesCount,
+               p.status,
+               p.audit_by as auditBy,
+               p.audit_time as auditTime,
+               p.audit_remark as auditRemark,
+               p.create_time as createTime,
+               p.update_time as updateTime
+        from agri_product p
+        left join agri_category c on c.category_id = p.category_id
+        where p.farmer_id = #{farmerId}
+        <if test="status != null and status != ''">
+            and p.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and p.product_name like concat('%', #{keyword}, '%')
+        </if>
+        order by p.update_time desc, p.product_id desc
+    </select>
+
+    <insert id="insertProduct" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="productId">
+        insert into agri_product (
+            category_id, farmer_id, product_name, product_cover, product_images,
+            product_desc, price, stock, sales_count, status,
+            audit_by, audit_time, audit_remark, create_time, update_time
+        ) values (
+            #{categoryId}, #{farmerId}, #{productName}, #{productCover}, #{productImages},
+            #{productDesc}, #{price}, #{stock}, #{salesCount}, #{status},
+            #{auditBy}, #{auditTime}, #{auditRemark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <update id="updateProductByFarmer" parameterType="java.util.Map">
+        update agri_product
+        set category_id = #{categoryId},
+            product_name = #{productName},
+            product_cover = #{productCover},
+            product_images = #{productImages},
+            product_desc = #{productDesc},
+            price = #{price},
+            stock = #{stock},
+            status = #{status},
+            audit_by = #{auditBy},
+            audit_time = #{auditTime},
+            audit_remark = #{auditRemark},
+            update_time = #{updateTime}
+        where product_id = #{productId}
+          and farmer_id = #{farmerId}
+    </update>
+
+    <delete id="deleteProductByFarmer">
+        delete from agri_product
+        where product_id = #{productId}
+          and farmer_id = #{farmerId}
+    </delete>
+
+    <select id="selectAdminProductList" parameterType="java.util.Map" resultType="java.util.Map">
+        select p.product_id as productId,
+               p.category_id as categoryId,
+               c.category_name as categoryName,
+               p.farmer_id as farmerId,
+               u.nick_name as farmerName,
+               p.product_name as productName,
+               p.product_cover as productCover,
+               p.product_images as productImages,
+               p.product_desc as productDesc,
+               p.price,
+               p.stock,
+               p.sales_count as salesCount,
+               p.status,
+               p.audit_by as auditBy,
+               p.audit_time as auditTime,
+               p.audit_remark as auditRemark,
+               p.create_time as createTime,
+               p.update_time as updateTime
+        from agri_product p
+        left join agri_category c on c.category_id = p.category_id
+        left join sys_user u on u.user_id = p.farmer_id
+        where 1 = 1
+        <if test="status != null and status != ''">
+            and p.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (p.product_name like concat('%', #{keyword}, '%')
+              or u.nick_name like concat('%', #{keyword}, '%'))
+        </if>
+        order by p.update_time desc, p.product_id desc
+    </select>
+
+    <update id="updateProductMedia" parameterType="java.util.Map">
+        update agri_product
+        set product_cover = #{productCover},
+            product_images = #{productImages},
+            update_time = #{updateTime}
+        where product_id = #{productId}
+    </update>
+
+    <update id="updateProductAudit" parameterType="java.util.Map">
+        update agri_product
+        set status = #{status},
+            audit_by = #{auditBy},
+            audit_time = #{auditTime},
+            audit_remark = #{auditRemark},
+            update_time = #{updateTime}
+        where product_id = #{productId}
+    </update>
+
+    <select id="selectFarmerSummary" resultType="java.util.Map">
+        select count(1) as totalOrders,
+               ifnull(sum(pay_amount), 0) as totalSales,
+               ifnull(sum(case when order_status = '4' then 1 else 0 end), 0) as completedOrders
+        from agri_order
+        where farmer_id = #{farmerId}
+          and pay_status = '1'
+          and date_format(create_time, '%Y-%m-%d') &gt;= #{beginDate}
+          and date_format(create_time, '%Y-%m-%d') &lt;= #{endDate}
+    </select>
+
+    <select id="selectFarmerCurve" resultType="java.util.Map">
+        select date_format(create_time, '%Y-%m-%d') as statDate,
+               ifnull(sum(pay_amount), 0) as salesAmount
+        from agri_order
+        where farmer_id = #{farmerId}
+          and pay_status = '1'
+          and date_format(create_time, '%Y-%m-%d') &gt;= #{beginDate}
+          and date_format(create_time, '%Y-%m-%d') &lt;= #{endDate}
+        group by date_format(create_time, '%Y-%m-%d')
+        order by statDate asc
+    </select>
+
+    <select id="selectFarmerHotProducts" resultType="java.util.Map">
+        select oi.product_id as productId,
+               oi.product_name as productName,
+               sum(oi.quantity) as saleQty,
+               sum(oi.amount) as saleAmount
+        from agri_order_item oi
+        inner join agri_order o on o.order_id = oi.order_id
+        where o.farmer_id = #{farmerId}
+          and o.pay_status = '1'
+        group by oi.product_id, oi.product_name
+        order by saleQty desc, saleAmount desc
+        limit 5
+    </select>
+
+    <select id="countFarmerLowStock" resultType="java.lang.Integer">
+        select count(1)
+        from agri_product
+        where farmer_id = #{farmerId}
+          and stock &lt;= #{threshold}
+          and status in ('0', '1', '3')
+    </select>
+
+    <insert id="insertDispute" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="disputeId">
+        insert into agri_dispute (
+            order_id, buyer_id, farmer_id, title, content,
+            status, handle_result, handle_by, handle_time, create_time, update_time
+        ) values (
+            #{orderId}, #{buyerId}, #{farmerId}, #{title}, #{content},
+            #{status}, #{handleResult}, #{handleBy}, #{handleTime}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <select id="selectDisputeById" resultType="java.util.Map">
+        select *
+        from agri_dispute
+        where dispute_id = #{disputeId}
+        limit 1
+    </select>
+
+    <select id="selectDisputeList" parameterType="java.util.Map" resultType="java.util.Map">
+        select d.dispute_id as disputeId,
+               d.order_id as orderId,
+               o.order_no as orderNo,
+               d.buyer_id as buyerId,
+               bu.nick_name as buyerName,
+               d.farmer_id as farmerId,
+               fu.nick_name as farmerName,
+               d.title,
+               d.content,
+               d.status,
+               d.handle_result as handleResult,
+               d.handle_by as handleBy,
+               d.handle_time as handleTime,
+               d.create_time as createTime,
+               d.update_time as updateTime
+        from agri_dispute d
+        left join agri_order o on o.order_id = d.order_id
+        left join sys_user bu on bu.user_id = d.buyer_id
+        left join sys_user fu on fu.user_id = d.farmer_id
+        where 1 = 1
+        <if test="buyerId != null">
+            and d.buyer_id = #{buyerId}
+        </if>
+        <if test="status != null and status != ''">
+            and d.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (d.title like concat('%', #{keyword}, '%')
+              or d.content like concat('%', #{keyword}, '%')
+              or o.order_no like concat('%', #{keyword}, '%')
+              or bu.nick_name like concat('%', #{keyword}, '%')
+              or fu.nick_name like concat('%', #{keyword}, '%'))
+        </if>
+        order by d.create_time desc, d.dispute_id desc
+    </select>
+
+    <update id="updateDisputeByAdmin" parameterType="java.util.Map">
+        update agri_dispute
+        <set>
+            <if test="orderId != null">
+                order_id = #{orderId},
+            </if>
+            <if test="buyerId != null">
+                buyer_id = #{buyerId},
+            </if>
+            <if test="farmerId != null">
+                farmer_id = #{farmerId},
+            </if>
+            <if test="title != null">
+                title = #{title},
+            </if>
+            <if test="content != null">
+                content = #{content},
+            </if>
+            <if test="status != null and status != ''">
+                status = #{status},
+            </if>
+            <if test="handleResult != null">
+                handle_result = #{handleResult},
+            </if>
+            <if test="handleBy != null">
+                handle_by = #{handleBy},
+            </if>
+            <if test="handleTime != null">
+                handle_time = #{handleTime},
+            </if>
+            update_time = #{updateTime}
+        </set>
+        where dispute_id = #{disputeId}
+    </update>
+
+    <update id="updateDisputeHandle" parameterType="java.util.Map">
+        update agri_dispute
+        set status = #{status},
+            handle_result = #{handleResult},
+            handle_by = #{handleBy},
+            handle_time = #{handleTime},
+            update_time = #{updateTime}
+        where dispute_id = #{disputeId}
+    </update>
+
+    <delete id="deleteDisputeById">
+        delete from agri_dispute where dispute_id = #{disputeId}
+    </delete>
+
+    <select id="selectFreightTemplateList" parameterType="java.util.Map" resultType="java.util.Map">
+        select template_id as templateId,
+               template_name as templateName,
+               region_code as regionCode,
+               first_fee as firstFee,
+               extra_fee as extraFee,
+               status,
+               create_by as createBy,
+               create_time as createTime,
+               update_by as updateBy,
+               update_time as updateTime,
+               remark
+        from agri_freight_template
+        where 1 = 1
+        <if test="keyword != null and keyword != ''">
+            and (template_name like concat('%', #{keyword}, '%')
+              or region_code like concat('%', #{keyword}, '%'))
+        </if>
+        order by update_time desc, template_id desc
+    </select>
+
+    <insert id="insertFreightTemplate" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="templateId">
+        insert into agri_freight_template (
+            template_name, region_code, first_fee, extra_fee, status,
+            create_by, create_time, update_by, update_time, remark
+        ) values (
+            #{templateName}, #{regionCode}, #{firstFee}, #{extraFee}, #{status},
+            #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark}
+        )
+    </insert>
+
+    <update id="updateFreightTemplate" parameterType="java.util.Map">
+        update agri_freight_template
+        set template_name = #{templateName},
+            region_code = #{regionCode},
+            first_fee = #{firstFee},
+            extra_fee = #{extraFee},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = #{updateTime},
+            remark = #{remark}
+        where template_id = #{templateId}
+    </update>
+
+    <delete id="deleteFreightTemplate">
+        delete from agri_freight_template where template_id = #{templateId}
+    </delete>
+
+    <select id="selectBuyerCouponList" resultType="java.util.Map">
+        select uc.user_coupon_id as userCouponId,
+               uc.coupon_id as couponId,
+               uc.user_id as userId,
+               uc.status as userCouponStatus,
+               uc.grant_by as grantBy,
+               uc.grant_time as grantTime,
+               uc.used_time as usedTime,
+               uc.used_order_id as usedOrderId,
+               uc.discount_amount as usedDiscountAmount,
+               c.coupon_name as couponName,
+               c.coupon_type as couponType,
+               c.threshold_amount as thresholdAmount,
+               c.discount_amount as discountAmount,
+               c.discount_rate as discountRate,
+               c.start_time as startTime,
+               c.end_time as endTime,
+               c.status
+        from agri_user_coupon uc
+        inner join agri_coupon c on c.coupon_id = uc.coupon_id
+        where uc.user_id = #{buyerId}
+          and uc.status = '0'
+          and c.status = '0'
+          and (c.start_time is null or c.start_time &lt;= now())
+          and (c.end_time is null or c.end_time &gt;= now())
+        order by uc.grant_time desc, uc.user_coupon_id desc
+    </select>
+
+    <select id="selectBuyerCouponById" resultType="java.util.Map">
+        select uc.user_coupon_id as userCouponId,
+               uc.coupon_id as couponId,
+               uc.user_id as userId,
+               uc.status as userCouponStatus,
+               uc.grant_by as grantBy,
+               uc.grant_time as grantTime,
+               uc.used_time as usedTime,
+               uc.used_order_id as usedOrderId,
+               uc.discount_amount as usedDiscountAmount,
+               c.coupon_name as couponName,
+               c.coupon_type as couponType,
+               c.threshold_amount as thresholdAmount,
+               c.discount_amount as discountAmount,
+               c.discount_rate as discountRate,
+               c.start_time as startTime,
+               c.end_time as endTime,
+               c.status
+        from agri_user_coupon uc
+        inner join agri_coupon c on c.coupon_id = uc.coupon_id
+        where uc.user_coupon_id = #{userCouponId}
+          and uc.user_id = #{buyerId}
+          and uc.status = '0'
+          and c.status = '0'
+          and (c.start_time is null or c.start_time &lt;= now())
+          and (c.end_time is null or c.end_time &gt;= now())
+        limit 1
+    </select>
+
+    <update id="markUserCouponUsed" parameterType="java.util.Map">
+        update agri_user_coupon
+        set status = '1',
+            used_time = #{usedTime},
+            used_order_id = #{usedOrderId},
+            discount_amount = #{discountAmount},
+            update_time = #{updateTime}
+        where user_coupon_id = #{userCouponId}
+          and user_id = #{buyerId}
+          and status = '0'
+    </update>
+
+    <insert id="insertUserCoupon" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="userCouponId">
+        insert into agri_user_coupon (
+            coupon_id, user_id, status, grant_by, grant_time,
+            used_time, used_order_id, discount_amount, create_time, update_time, remark
+        ) values (
+            #{couponId}, #{userId}, #{status}, #{grantBy}, #{grantTime},
+            #{usedTime}, #{usedOrderId}, #{discountAmount}, #{createTime}, #{updateTime}, #{remark}
+        )
+    </insert>
+
+    <update id="decreaseCouponRemain">
+        update agri_coupon
+        set remain_count = remain_count - #{count},
+            update_by = #{operator},
+            update_time = #{updateTime}
+        where coupon_id = #{couponId}
+          and remain_count &gt;= #{count}
+    </update>
+
+    <select id="selectCouponList" parameterType="java.util.Map" resultType="java.util.Map">
+        select coupon_id as couponId,
+               coupon_name as couponName,
+               coupon_type as couponType,
+               threshold_amount as thresholdAmount,
+               discount_amount as discountAmount,
+               discount_rate as discountRate,
+               start_time as startTime,
+               end_time as endTime,
+               total_count as totalCount,
+               remain_count as remainCount,
+               status,
+               create_by as createBy,
+               create_time as createTime,
+               update_by as updateBy,
+               update_time as updateTime,
+               remark
+        from agri_coupon
+        where 1 = 1
+        <if test="couponId != null and couponId != ''">
+            and coupon_id = #{couponId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and coupon_name like concat('%', #{keyword}, '%')
+        </if>
+        order by update_time desc, coupon_id desc
+    </select>
+
+    <insert id="insertCoupon" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="couponId">
+        insert into agri_coupon (
+            coupon_name, coupon_type, threshold_amount, discount_amount, discount_rate,
+            start_time, end_time, total_count, remain_count, status,
+            create_by, create_time, update_by, update_time, remark
+        ) values (
+            #{couponName}, #{couponType}, #{thresholdAmount}, #{discountAmount}, #{discountRate},
+            #{startTime}, #{endTime}, #{totalCount}, #{remainCount}, #{status},
+            #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark}
+        )
+    </insert>
+
+    <update id="updateCoupon" parameterType="java.util.Map">
+        update agri_coupon
+        set coupon_name = #{couponName},
+            coupon_type = #{couponType},
+            threshold_amount = #{thresholdAmount},
+            discount_amount = #{discountAmount},
+            discount_rate = #{discountRate},
+            start_time = #{startTime},
+            end_time = #{endTime},
+            total_count = #{totalCount},
+            remain_count = #{remainCount},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = #{updateTime},
+            remark = #{remark}
+        where coupon_id = #{couponId}
+    </update>
+
+    <delete id="deleteCoupon">
+        delete from agri_coupon where coupon_id = #{couponId}
+    </delete>
+
+    <select id="selectPromotionList" parameterType="java.util.Map" resultType="java.util.Map">
+        select promotion_id as promotionId,
+               promotion_name as promotionName,
+               promotion_type as promotionType,
+               start_time as startTime,
+               end_time as endTime,
+               content,
+               status,
+               create_by as createBy,
+               create_time as createTime,
+               update_by as updateBy,
+               update_time as updateTime,
+               remark
+        from agri_promotion
+        where 1 = 1
+        <if test="keyword != null and keyword != ''">
+            and promotion_name like concat('%', #{keyword}, '%')
+        </if>
+        order by update_time desc, promotion_id desc
+    </select>
+
+    <select id="selectActivePromotionList" resultType="java.util.Map">
+        select promotion_id as promotionId,
+               promotion_name as promotionName,
+               promotion_type as promotionType,
+               start_time as startTime,
+               end_time as endTime,
+               content,
+               status,
+               create_by as createBy,
+               create_time as createTime,
+               update_by as updateBy,
+               update_time as updateTime,
+               remark
+        from agri_promotion
+        where status = '0'
+          and (start_time is null or start_time &lt;= now())
+          and (end_time is null or end_time &gt;= now())
+        order by start_time desc, promotion_id desc
+    </select>
+
+    <insert id="insertPromotion" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="promotionId">
+        insert into agri_promotion (
+            promotion_name, promotion_type, start_time, end_time, content, status,
+            create_by, create_time, update_by, update_time, remark
+        ) values (
+            #{promotionName}, #{promotionType}, #{startTime}, #{endTime}, #{content}, #{status},
+            #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark}
+        )
+    </insert>
+
+    <update id="updatePromotion" parameterType="java.util.Map">
+        update agri_promotion
+        set promotion_name = #{promotionName},
+            promotion_type = #{promotionType},
+            start_time = #{startTime},
+            end_time = #{endTime},
+            content = #{content},
+            status = #{status},
+            update_by = #{updateBy},
+            update_time = #{updateTime},
+            remark = #{remark}
+        where promotion_id = #{promotionId}
+    </update>
+
+    <delete id="deletePromotion">
+        delete from agri_promotion where promotion_id = #{promotionId}
+    </delete>
+
+    <delete id="deleteOrderItemsByOrder">
+        delete from agri_order_item where order_id = #{orderId}
+    </delete>
+
+    <delete id="deletePaymentVoucherByOrder">
+        delete from agri_payment_voucher where order_id = #{orderId}
+    </delete>
+
+    <delete id="deleteLogisticsByOrder">
+        delete from agri_logistics_trace where order_id = #{orderId}
+    </delete>
+
+    <delete id="deleteRefundByOrder">
+        delete from agri_refund where order_id = #{orderId}
+    </delete>
+
+    <delete id="deleteDisputeByOrder">
+        delete from agri_dispute where order_id = #{orderId}
+    </delete>
+
+    <delete id="deleteOrderById">
+        delete from agri_order where order_id = #{orderId}
+    </delete>
+
+    <select id="selectBuyerAddressList" resultType="java.util.Map">
+        select address_id as addressId,
+               user_id as userId,
+               receiver_name as receiverName,
+               receiver_phone as receiverPhone,
+               receiver_address as receiverAddress,
+               is_default as isDefault
+        from agri_buyer_address
+        where user_id = #{userId}
+        order by is_default desc, update_time desc, address_id desc
+    </select>
+
+    <insert id="insertBuyerAddress" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="addressId">
+        insert into agri_buyer_address (
+            user_id, receiver_name, receiver_phone, receiver_address, is_default, create_time, update_time
+        ) values (
+            #{userId}, #{receiverName}, #{receiverPhone}, #{receiverAddress}, #{isDefault}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <update id="updateBuyerAddress" parameterType="java.util.Map">
+        update agri_buyer_address
+        set receiver_name = #{receiverName},
+            receiver_phone = #{receiverPhone},
+            receiver_address = #{receiverAddress},
+            is_default = #{isDefault},
+            update_time = #{updateTime}
+        where address_id = #{addressId}
+          and user_id = #{userId}
+    </update>
+
+    <update id="clearBuyerDefaultAddress">
+        update agri_buyer_address
+        set is_default = '0',
+            update_time = #{updateTime}
+        where user_id = #{userId}
+          and is_default = '1'
+    </update>
+
+    <update id="setBuyerDefaultAddress">
+        update agri_buyer_address
+        set is_default = '1',
+            update_time = #{updateTime}
+        where address_id = #{addressId}
+          and user_id = #{userId}
+    </update>
+
+    <delete id="deleteBuyerAddress">
+        delete from agri_buyer_address
+        where address_id = #{addressId}
+          and user_id = #{userId}
+    </delete>
+
+    <select id="selectAdminSummary" resultType="java.util.Map">
+        select
+            ifnull(sum(pay_amount), 0) as totalSales,
+            count(order_id) as totalOrders,
+            (select count(distinct user_id) from agri_farmer_apply where status = '1') as totalFarmers,
+            (select count(product_id) from agri_product where status = '1') as totalProducts
+        from agri_order
+        where pay_status = '1'
+    </select>
+
+    <select id="selectAdminCategoryDistribution" resultType="java.util.Map">
+        select
+            c.category_name as name,
+            count(p.product_id) as value
+        from agri_category c
+        left join agri_product p on p.category_id = c.category_id and p.status = '1'
+        where c.status = '0'
+        group by c.category_id, c.category_name
+        having value > 0
+        order by value desc
+    </select>
+
+    <select id="selectAdminOrderStatusDistribution" resultType="java.util.Map">
+        select
+            case order_status
+                when '0' then '待付款'
+                when '1' then '待发货'
+                when '2' then '已发货'
+                when '3' then '派送中'
+                when '4' then '已完成'
+                when '5' then '已取消'
+                when '6' then '退款中'
+                when '7' then '已退款'
+                else '其他'
+            end as name,
+            count(order_id) as value
+        from agri_order
+        group by order_status
+        order by order_status asc
+    </select>
+
+    <select id="selectAdminSalesCurve" resultType="java.util.Map">
+        select
+            date_format(create_time, '%Y-%m') as statMonth,
+            ifnull(sum(pay_amount), 0) as salesAmount
+        from agri_order
+        where pay_status = '1'
+          and date_format(create_time, '%Y-%m-%d') >= #{beginDate}
+          and date_format(create_time, '%Y-%m-%d') &lt;= #{endDate}
+        group by statMonth
+        order by statMonth asc
+    </select>
+
+    <select id="selectLatestNotices" resultType="java.util.Map">
+        select
+            '公告' as tag,
+            notice_title as title,
+            date_format(create_time, '%Y-%m-%d') as time,
+            case notice_type when '1' then 'primary' when '2' then 'success' else 'info' end as type
+        from sys_notice
+        where status = '0'
+        order by create_time desc
+        limit #{count}
+    </select>
+
+</mapper>
